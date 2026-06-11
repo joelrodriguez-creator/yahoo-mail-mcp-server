@@ -1251,6 +1251,14 @@ class YahooMailMCPServer {
     }
 
     async runSSE() {
+        // Fail closed: SSE mode exposes the full mailbox (read + delete) over HTTP,
+        // so refuse to start unless OAuth is configured.
+        if (!process.env.OAUTH_CLIENT_ID || !process.env.OAUTH_CLIENT_SECRET) {
+            console.error('[Server] FATAL: SSE mode requires OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET to be set');
+            console.error('[Server] Refusing to start an unauthenticated server. Set both variables, or use TRANSPORT_MODE=stdio');
+            process.exit(1);
+        }
+
         const app = express();
         const port = process.env.PORT || 3000;
 
@@ -1313,9 +1321,13 @@ class YahooMailMCPServer {
             const oauthConfigured = process.env.OAUTH_CLIENT_ID && process.env.OAUTH_CLIENT_SECRET;
 
             if (!oauthConfigured) {
-                console.error('[Auth] WARNING: OAuth not configured - server is UNSECURED!');
+                // Fail closed: never serve MCP endpoints unauthenticated
+                console.error('[Auth] OAuth not configured - refusing request');
                 console.error('[Auth] Set OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET to secure your server');
-                return next();
+                return res.status(503).json({
+                    error: 'server_misconfigured',
+                    error_description: 'OAuth is not configured; refusing to serve unauthenticated requests'
+                });
             }
 
             // Validate OAuth Bearer token
